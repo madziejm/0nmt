@@ -3,8 +3,7 @@ from typing import Tuple
 import torch
 from torch import Tensor, nn
 
-# from zeronmt.models.attention import MultiheadAttention
-from torchtext.vocab import Vectors
+from zeronmt.models.datatypes import DimensionSpec, Embeddings, Language
 
 
 class Encoder(nn.Module):
@@ -14,46 +13,34 @@ class Encoder(nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        # emb_dim: int,
-        pretrained_embeddings: Vectors,  # input embeddings
-        enc_hid_dim: int,
-        dec_hid_dim: int,
+        embedding_layer: Embeddings,  # embedding for input tokens
+        emb_dim: int,
+        dimensions: DimensionSpec,
         dropout: float,
         PAD_IDX: int,
-        num_special_toks: int,
     ):
         super().__init__()
 
-        self.input_dim = input_dim
-        self.emb_dim = pretrained_embeddings.dim
-        assert (
-            self.emb_dim is not None
-        ), "word embedding length is not initialized, set it"
-        self.enc_hid_dim = enc_hid_dim
-        self.dec_hid_dim = dec_hid_dim
-        self.dropout = dropout
-        self.num_special_toks = num_special_toks
+        self.embedding_layer = embedding_layer
 
         self.special_toks_embedding = nn.Embedding(
-            self.num_special_toks, self.emb_dim, padding_idx=PAD_IDX
-        )
-        # TODO consider normalization here
-        self.pretrained_embedding = nn.Embedding.from_pretrained(
-            pretrained_embeddings.vectors,
-            freeze=True,
+            dimensions.nspecial_toks, emb_dim, padding_idx=PAD_IDX
         )
 
-        self.rnn = nn.GRU(self.emb_dim, enc_hid_dim, bidirectional=True)
-        self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
+        self.rnn = nn.GRU(emb_dim, dimensions.enc_hid, bidirectional=True)
+        self.fc = nn.Linear(dimensions.enc_hid * 2, dimensions.dec_hid)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, src: Tensor) -> Tuple[Tensor]:
+    def forward(self, tok_seq: Tensor, from_lang: Language) -> Tuple[Tensor, Tensor]:
         # hopefully this works
-        special_token_mask = src < self.special_toks_embedding.num_embeddings
-        embedded = self.pretrained_embedding(src)  # these are zeros for special tokens
+        special_token_mask = tok_seq < self.special_toks_embedding.num_embeddings
+        embedded = (
+            self.embedding_layer.src(tok_seq)
+            if from_lang == Language.src
+            else self.embedding_layer.tgt(tok_seq)
+        )  # the pretrained embeddings return zero vectors for special tokens
         embedded[special_token_mask] = self.special_toks_embedding(
-            src[special_token_mask]
+            tok_seq[special_token_mask]
         )
 
         embedded = self.dropout(embedded)

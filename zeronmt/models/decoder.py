@@ -2,9 +2,9 @@ from typing import Tuple
 
 import torch
 from torch import Tensor, nn
-from torchtext.vocab import Vectors
 
 from zeronmt.models.attention import Attention
+from zeronmt.models.datatypes import DimensionSpec, Embeddings, Language
 
 
 class Decoder(nn.Module):
@@ -14,40 +14,31 @@ class Decoder(nn.Module):
 
     def __init__(
         self,
-        output_dim: int,
-        pretrained_embeddings: Vectors,  # output embeddings
-        enc_hid_dim: int,
-        dec_hid_dim: int,
+        embedding_layer: Embeddings,  # embedding for output tokens
+        emb_dim: int,
+        dimensions: DimensionSpec,
         dropout: float,
         attention: Attention,
         PAD_IDX: int,
-        num_special_toks: int,
     ):
         super().__init__()
 
-        self.output_dim = output_dim
-        self.emb_dim = pretrained_embeddings.dim
-        assert (
-            self.emb_dim is not None
-        ), "word embedding length is not initialized, set it"
-        self.enc_hid_dim = enc_hid_dim
-        self.dec_hid_dim = dec_hid_dim
-        self.dropout = dropout
+        self.embedding_layer = embedding_layer
+
         self.attention = attention
-        self.num_special_toks = num_special_toks
 
         self.special_toks_embedding = nn.Embedding(
-            self.num_special_toks, self.emb_dim, padding_idx=PAD_IDX
-        )
-        # TODO consider normalization here
-        self.pretrained_embedding = nn.Embedding.from_pretrained(
-            pretrained_embeddings.vectors,
-            freeze=True,
+            dimensions.nspecial_toks, emb_dim, padding_idx=PAD_IDX
         )
 
-        self.rnn = nn.GRU((enc_hid_dim * 2) + self.emb_dim, dec_hid_dim)
+        self.rnn = nn.GRU((dimensions.enc_hid * 2) + emb_dim, dimensions.dec_hid)
 
-        self.out = nn.Linear(self.attention.attn_in + self.emb_dim, output_dim)
+        self.output_to_src = nn.Linear(
+            self.attention.attn_in + emb_dim, self.embedding_layer.src.num_embeddings
+        )
+        self.output_to_tgt = nn.Linear(
+            self.attention.attn_in + emb_dim, self.embedding_layer.tgt.num_embeddings
+        )
 
         self.dropout = nn.Dropout(dropout)
 
@@ -67,17 +58,21 @@ class Decoder(nn.Module):
         return weighted_encoder_rep
 
     def forward(
-        self, input: Tensor, decoder_hidden: Tensor, encoder_outputs: Tensor
-    ) -> Tuple[Tensor]:
-        input = input.unsqueeze(0)
+        self,
+        input_tok_seq: Tensor,
+        decoder_hidden: Tensor,
+        encoder_outputs: Tensor,
+        to_lang: Language,
+    ) -> Tuple[Tensor, Tensor]:
+        input_tok_seq = input_tok_seq.unsqueeze(0)
 
         # hopefully this works
-        special_token_mask = input < self.special_toks_embedding.num_embeddings
-        embedded = self.pretrained_embedding(
-            input
+        special_token_mask = input_tok_seq < self.special_toks_embedding.num_embeddings
+        embedded = self.embedding_layer.tgt(
+            input_tok_seq
         )  # these are zeros for special tokens
         embedded[special_token_mask] = self.special_toks_embedding(
-            input[special_token_mask]
+            input_tok_seq[special_token_mask]
         )
 
         embedded = self.dropout(embedded)
@@ -94,6 +89,14 @@ class Decoder(nn.Module):
         output = output.squeeze(0)
         weighted_encoder_rep = weighted_encoder_rep.squeeze(0)
 
-        output = self.out(torch.cat((output, weighted_encoder_rep, embedded), dim=1))
+        output: Tensor = (
+            self.output_to_src(
+                torch.cat((output, weighted_encoder_rep, embedded), dim=1)
+            )
+            if to_lang == Language.src
+            else self.output_to_tgt(
+                torch.cat((output, weighted_encoder_rep, embedded), dim=1)
+            )
+        )
 
         return output, decoder_hidden.squeeze(0)
