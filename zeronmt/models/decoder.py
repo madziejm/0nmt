@@ -26,10 +26,10 @@ class Decoder(nn.Module):
         super().__init__()
 
         self.output_dim = output_dim
+        self.emb_dim = pretrained_embeddings.dim
         assert (
             self.emb_dim is not None
         ), "word embedding length is not initialized, set it"
-        self.emb_dim = pretrained_embeddings.dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout
