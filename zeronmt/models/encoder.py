@@ -3,6 +3,7 @@ from typing import Tuple
 import torch
 from torch import Tensor, nn
 
+# from zeronmt.models.attention import MultiheadAttention
 from torchtext.vocab import Vectors
 
 
@@ -25,10 +26,10 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.input_dim = input_dim
+        self.emb_dim = pretrained_embeddings.dim
         assert (
             self.emb_dim is not None
         ), "word embedding length is not initialized, set it"
-        self.emb_dim = pretrained_embeddings.dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout

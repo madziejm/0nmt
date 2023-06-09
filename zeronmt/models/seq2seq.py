@@ -24,7 +24,9 @@ class Seq2Seq(pl.LightningModule):
 
         self.encoder = encoder
         self.decoder = decoder
-        self.criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX)
+        self.criterion = (
+            nn.CrossEntropyLoss()
+        )  # ignore_index=PAD_IDX) # not needed TODO remove (ignoring is handled by nn.Embedding)
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
         # we do not want to save the frozen embeddings
@@ -77,15 +79,31 @@ class Seq2Seq(pl.LightningModule):
         return optim.Adam(self.parameters())  # TODO customize lr?
 
     def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
+        batch_size = len(batch)
         src, tgt = batch
+
+        # src -> tgt step
         output = self(src, tgt, teacher_forcing)
+        output = output[1:].view(
+            -1, output.shape[-1]
+        )  # skip the leading bos token, leave the number of output class dim, do Pytorch knows we are passing logits here
+        loss_src_tgt = self.criterion(
+            output, tgt[1:].view(-1)
+        )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
-        output = output[1:].view(-1, output.shape[-1])
-        tgt = tgt[1:].view(-1)
+        # tgt -> src step
+        output = self(tgt, src, teacher_forcing)
+        output = output[1:].view(
+            -1, output.shape[-1]
+        )  # skip the leading bos token, leave the number of output class dim, do Pytorch knows we are passing logits here
 
-        loss = self.criterion(output, tgt)
+        loss_tgt_src = self.criterion(
+            output, src[1:].view(-1)
+        )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
-        self.log(mode + "_loss", loss, prog_bar=True)
+        loss = loss_src_tgt + loss_tgt_src
+
+        self.log(mode + "_loss", loss, prog_bar=True, batch_size=batch_size)
 
         return loss
 
@@ -97,5 +115,4 @@ class Seq2Seq(pl.LightningModule):
         return self.base_step(batch, teacher_forcing=0.0)
 
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        print(f"test: {batch_idx}")
         return self.base_step(batch, teacher_forcing=0.0)
