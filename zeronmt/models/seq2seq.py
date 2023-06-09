@@ -1,3 +1,4 @@
+# from zeronmt.models.discriminator import Discriminator
 import random
 from typing import Any
 
@@ -26,14 +27,22 @@ class Seq2Seq(pl.LightningModule):
         self.criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX)
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
-        self.save_hyperparameters()
+        # we do not want to save the frozen embeddings
+        # as it would slow down the training
+        self.save_hyperparameters(
+            ignore=[
+                "encoder",
+                "decoder",
+            ]  # TODO fix this so encoder and decoder are actually saved
+        )
 
-        # TODO remove this intialization?
         for name, param in self.named_parameters():
-            if "weight" in name:
-                nn.init.normal_(param.data, mean=0, std=0.01)
-            else:
-                nn.init.constant_(param.data, 0)
+            print(name)
+        # TODO remove this intialization
+        #     if "weight" in name:
+        #         nn.init.normal_(param.data, mean=0, std=0.01)
+        #     else:
+        #         nn.init.constant_(param.data, 0)
 
     def forward(self, src: Tensor, tgt: Tensor, teacher_forcing_ratio) -> Tensor:
         batch_size = src.shape[1]
@@ -58,14 +67,14 @@ class Seq2Seq(pl.LightningModule):
                 False
                 if teacher_forcing_ratio == 0.0
                 else (random.random() < teacher_forcing_ratio)
-            )  # to tak dziala? TODO
+            )
             top_token = output.argmax(-1)
             output = tgt[t] if teacher_force else top_token
 
         return outputs
 
     def configure_optimizers(self) -> Any:
-        return optim.Adam(self.parameters())  # TODO cusotmize lr?
+        return optim.Adam(self.parameters())  # TODO customize lr?
 
     def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
         src, tgt = batch

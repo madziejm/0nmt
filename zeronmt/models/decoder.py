@@ -2,6 +2,7 @@ from typing import Tuple
 
 import torch
 from torch import Tensor, nn
+from torchtext.vocab import Vectors
 
 from zeronmt.models.attention import Attention
 
@@ -14,26 +15,39 @@ class Decoder(nn.Module):
     def __init__(
         self,
         output_dim: int,
-        emb_dim: int,
+        pretrained_embeddings: Vectors,  # output embeddings
         enc_hid_dim: int,
         dec_hid_dim: int,
-        dropout: int,
+        dropout: float,
         attention: Attention,
+        PAD_IDX: int,
+        num_special_toks: int,
     ):
         super().__init__()
 
-        self.emb_dim = emb_dim
+        self.output_dim = output_dim
+        assert (
+            self.emb_dim is not None
+        ), "word embedding length is not initialized, set it"
+        self.emb_dim = pretrained_embeddings.dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
-        self.output_dim = output_dim
         self.dropout = dropout
         self.attention = attention
+        self.num_special_toks = num_special_toks
 
-        self.embedding = nn.Embedding(output_dim, emb_dim)
+        self.special_toks_embedding = nn.Embedding(
+            self.num_special_toks, self.emb_dim, padding_idx=PAD_IDX
+        )
+        # TODO consider normalization here
+        self.pretrained_embedding = nn.Embedding.from_pretrained(
+            pretrained_embeddings.vectors,
+            freeze=True,
+        )
 
-        self.rnn = nn.GRU((enc_hid_dim * 2) + emb_dim, dec_hid_dim)
+        self.rnn = nn.GRU((enc_hid_dim * 2) + self.emb_dim, dec_hid_dim)
 
-        self.out = nn.Linear(self.attention.attn_in + emb_dim, output_dim)
+        self.out = nn.Linear(self.attention.attn_in + self.emb_dim, output_dim)
 
         self.dropout = nn.Dropout(dropout)
 
@@ -57,7 +71,16 @@ class Decoder(nn.Module):
     ) -> Tuple[Tensor]:
         input = input.unsqueeze(0)
 
-        embedded = self.dropout(self.embedding(input))
+        # hopefully this works
+        special_token_mask = input < self.special_toks_embedding.num_embeddings
+        embedded = self.pretrained_embedding(
+            input
+        )  # these are zeros for special tokens
+        embedded[special_token_mask] = self.special_toks_embedding(
+            input[special_token_mask]
+        )
+
+        embedded = self.dropout(embedded)
 
         weighted_encoder_rep = self._weighted_encoder_rep(
             decoder_hidden, encoder_outputs
