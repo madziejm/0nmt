@@ -24,6 +24,8 @@ class Decoder(nn.Module):
         super().__init__()
 
         self.embedding_layer = embedding_layer
+        for k, emb in self.embedding_layer._asdict().items():
+            self.add_module("embedding_" + k, emb)
 
         self.attention = attention
 
@@ -97,6 +99,6 @@ class Decoder(nn.Module):
             else self.output_to_tgt(
                 torch.cat((output, weighted_encoder_rep, embedded), dim=1)
             )
-        )
+        ).to(input_tok_seq.device)
 
         return output, decoder_hidden.squeeze(0)
