@@ -22,6 +22,8 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.embedding_layer = embedding_layer
+        for k, emb in self.embedding_layer._asdict().items():
+            self.add_module("embedding_" + k, emb)
 
         self.special_toks_embedding = nn.Embedding(
             dimensions.nspecial_toks, emb_dim, padding_idx=PAD_IDX
@@ -49,6 +51,6 @@ class Encoder(nn.Module):
 
         hidden = torch.tanh(
             self.fc(torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1))
-        )
+        ).to(tok_seq.device)
 
         return outputs, hidden

@@ -44,6 +44,8 @@ class Seq2Seq(pl.LightningModule):
                 freeze=True,
             ),
         )
+        for k, emb in self.embedding_layer._asdict().items():
+            self.add_module("embedding_" + k, emb)
 
         self.encoder = Encoder(
             self.embedding_layer,
@@ -91,7 +93,7 @@ class Seq2Seq(pl.LightningModule):
         max_output_len = tgt.shape[0]
         tgt_vocab_size = self.embedding_layer.tgt.num_embeddings
 
-        outputs = torch.zeros(max_output_len, batch_size, tgt_vocab_size)
+        outputs = torch.zeros(max_output_len, batch_size, tgt_vocab_size).to(src.device)
 
         encoder_outputs, hidden = self.encoder(src, from_lang)
 
