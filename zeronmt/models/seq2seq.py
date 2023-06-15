@@ -1,4 +1,5 @@
 # from zeronmt.models.discriminator import Discriminator # TODO
+import gc
 import random
 from typing import Any
 
@@ -149,6 +150,8 @@ class Seq2Seq(pl.LightningModule):
         loss = l_autoenc_src_tgt + l_autoenc_tgt_src + l_cd + l_adv
 
         self.log(mode + "_loss", loss, prog_bar=True, batch_size=batch_size)
+
+        gc.collect()
 
         return loss
 
