@@ -1,5 +1,5 @@
 # from zeronmt.models.discriminator import Discriminator # TODO
-import gc
+# import gc
 import random
 from typing import Any
 
@@ -151,7 +151,8 @@ class Seq2Seq(pl.LightningModule):
 
         self.log(mode + "_loss", loss, prog_bar=True, batch_size=batch_size)
 
-        gc.collect()
+        # gc.collect() # TODO consider using me when really in need of memory
+        # torch.cuda.empty_cache() # TODO consider using me when really in need of memory
 
         return loss
 
