@@ -161,7 +161,7 @@ class Seq2Seq(pl.LightningModule):
         return self.base_step(batch[0], self.teacher_forcing_ratio)
 
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        return self.base_step(batch, teacher_forcing=0.0)
+        return self.base_step(batch, teacher_forcing=0.0, mode="val")
 
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
-        return self.base_step(batch, teacher_forcing=0.0)
+        return self.base_step(batch, teacher_forcing=0.0, mode="test")
