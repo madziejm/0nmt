@@ -15,7 +15,7 @@ from zeronmt.models.decoder import Decoder
 from zeronmt.models.encoder import Encoder
 
 
-class Seq2Seq(pl.LightningModule):
+class Seq2SeqSupervised(pl.LightningModule):
     def __init__(
         self,
         dec_dropout: float,
@@ -118,17 +118,21 @@ class Seq2Seq(pl.LightningModule):
         return optim.Adam(self.parameters())  # TODO customize lr?
 
     def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
+        """
+        Get a batch of really parallel pairs of src-tgt sentences.
+        Translate src -> tgt and tgt -> src.
+        Return loss based the the two-way translations.
+        This is similar to CROSS DOMAIN TRAINING from arXiv:1711.00043.
+        """
         batch_size = len(batch)
         src, tgt = batch
-
-        # --- Denoising Auto - Encoding ---
 
         # src -> tgt step
         output = self(src, tgt, Language.src, Language.tgt, teacher_forcing)
         output = output[1:].view(
             -1, output.shape[-1]
         )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
-        l_autoenc_src_tgt = self.criterion(
+        l_src_tgt = self.criterion(
             output, tgt[1:].view(-1)
         )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
@@ -138,16 +142,11 @@ class Seq2Seq(pl.LightningModule):
             -1, output.shape[-1]
         )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
 
-        l_autoenc_tgt_src = self.criterion(
+        l_tgt_src = self.criterion(
             output, src[1:].view(-1)
         )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
-        # --- Cross Domain Training ---
-        l_cd = 0.0
-        # --- Adversarial Training ---
-        l_adv = 0.0
-
-        loss = l_autoenc_src_tgt + l_autoenc_tgt_src + l_cd + l_adv
+        loss = l_src_tgt + l_tgt_src
 
         self.log(mode + "_loss", loss, prog_bar=True, batch_size=batch_size)
 
@@ -165,3 +164,54 @@ class Seq2Seq(pl.LightningModule):
 
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
         return self.base_step(batch, teacher_forcing=0.0, mode="test")
+
+
+class Seq2SeqUnsupervised(Seq2SeqSupervised):
+    """
+    Get a batch of pairs of src-tgt sentences that are not aligned.
+    Translate src -> tgt and tgt -> src.
+    Return loss based the the two-way translations.
+    """
+
+    def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
+        batch_size = len(batch)
+        src, tgt = batch
+
+        # --- Denoising Auto - Encoding ---
+        # TODO
+        l_auto = 0.0
+
+        # --- Cross Domain Training ---
+        # TODO make this step resemble the corresponding step from arXiv:1711.00043
+        # src -> tgt step
+        output = self(src, tgt, Language.src, Language.tgt, teacher_forcing)
+        output = output[1:].view(
+            -1, output.shape[-1]
+        )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+        l_cd_src_tgt = self.criterion(
+            output, tgt[1:].view(-1)
+        )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
+
+        # # tgt -> src step
+        output = self(tgt, src, Language.tgt, Language.src, teacher_forcing)
+        output = output[1:].view(
+            -1, output.shape[-1]
+        )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+
+        l_cd_tgt_src = self.criterion(
+            output, src[1:].view(-1)
+        )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
+
+        # --- Cross Domain Training --- # TODO
+        l_cd = 0.0
+        # --- Adversarial Training --- # TODO
+        l_adv = 0.0
+
+        loss = l_auto + l_cd_src_tgt + l_cd_tgt_src + l_adv
+
+        self.log(mode + "_loss", loss, prog_bar=True, batch_size=batch_size)
+
+        # gc.collect() # TODO consider using me when really in need of memory
+        # torch.cuda.empty_cache() # TODO consider using me when really in need of memory
+
+        return loss
