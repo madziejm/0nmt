@@ -70,10 +70,18 @@ class Decoder(nn.Module):
 
         # hopefully this works
         special_token_mask = input_tok_seq < self.special_toks_embedding.num_embeddings
-        embedded = self.embedding_layer.tgt(
-            input_tok_seq
-        )  # these are zeros for special tokens
-        embedded[special_token_mask] = self.special_toks_embedding(
+        embedded = (
+            self.embedding_layer.tgt(  # these are zeros for special tokens
+                input_tok_seq
+            )
+            if to_lang == Language.tgt
+            else self.embedding_layer.src(
+                input_tok_seq
+            )  # these are zeros for special tokens
+        )
+        embedded[
+            special_token_mask
+        ] = self.special_toks_embedding(  # nonzero only for special tokens
             input_tok_seq[special_token_mask]
         )
 
