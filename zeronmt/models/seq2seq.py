@@ -178,8 +178,22 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
         src, tgt = batch
 
         # --- Denoising Auto - Encoding ---
-        # TODO
-        l_auto = 0.0
+        # TODO apply copy the original output
+        # apply noise to the input before passing it to the model
+        # calculate loss based on the input before applying noise
+        output_src = self(src, src, Language.src, Language.src, teacher_forcing)
+        output_tgt = self(tgt, tgt, Language.tgt, Language.tgt, teacher_forcing)
+        l_auto = self.criterion(
+            output_src,
+            src[1:].view(
+                -1
+            ),  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
+        ) + self.criterion(
+            output_tgt,
+            tgt[1:].view(
+                -1
+            ),  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
+        )
 
         # --- Cross Domain Training ---
         # TODO make this step resemble the corresponding step from arXiv:1711.00043
