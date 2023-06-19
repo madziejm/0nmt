@@ -8,11 +8,48 @@ import torch
 import torch.optim as optim
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from torch import Tensor, nn
+import torch.nn.functional as F
 
 from zeronmt.models.attention import Attention
 from zeronmt.models.datatypes import DimensionSpec, Embeddings, Language, Vectors
 from zeronmt.models.decoder import Decoder
 from zeronmt.models.encoder import Encoder
+
+
+class Discriminator(pl.LightningModule):
+    def __init__(self, input_size, embedding_size, hidden_size=1024):
+        super(self).__init__()
+
+        self.embedding = nn.Embedding(input_size, embedding_size)
+        self.hidden_layer1 = nn.Linear(embedding_size, hidden_size)
+        self.hidden_layer2 = nn.Linear(hidden_size, hidden_size)
+        self.hidden_layer3 = nn.Linear(hidden_size, hidden_size)
+        self.output_layer = nn.Linear(hidden_size, 1)
+        self.leaky_relu = nn.LeakyReLU(0.2)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x = torch.mean(x, dim=1)
+        x = self.hidden_layer1(x)
+        x = self.leaky_relu(x)
+        x = self.hidden_layer2(x)
+        x = self.leaky_relu(x)
+        x = self.hidden_layer3(x)
+        x = self.leaky_relu(x)
+        x = self.output_layer(x)
+        x = self.sigmoid(x)
+        return x
+
+    def training_step(self, batch, labels):
+    
+        predictions = self(batch)
+        loss = F.binary_cross_entropy(predictions, labels)
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        return optimizer
 
 
 class Seq2SeqSupervised(pl.LightningModule):
@@ -172,6 +209,25 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
     Translate src -> tgt and tgt -> src.
     Return loss based the the two-way translations.
     """
+    def __init__(
+        self,
+        dec_dropout: float,
+        enc_dropout: float,
+        dimensions: DimensionSpec,
+        PAD_IDX: int,
+        batch_size:int,
+        pretrained_embeddings: Vectors,
+        teacher_forcing_ratio=0.5,
+    ):
+        super().__init__()
+
+        emb_dim: int = pretrained_embeddings.src.dim
+        assert emb_dim is not None, "word embedding length is not initialized, set it"
+        assert (
+            pretrained_embeddings.src.dim == pretrained_embeddings.tgt.dim
+        ), "we wanted the embedding to interchangable, right?"
+
+        self.discriminator = Discriminator(batch_size, emb_dim)
 
     def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
         batch_size = len(batch)
@@ -205,7 +261,10 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
         # --- Cross Domain Training --- # TODO
         l_cd = 0.0
         # --- Adversarial Training --- # TODO
-        l_adv = 0.0
+
+        dis_batch, dis_labels = "todo", "todo" ### need to shuffle tgt and src in batch, labels according to that split
+        discriminator_loss = self.discriminator.training_step(self, dis_batch, dis_labels)
+        l_adv = 1.0 - discriminator_loss #?????
 
         loss = l_auto + l_cd_src_tgt + l_cd_tgt_src + l_adv
 
