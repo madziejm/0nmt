@@ -3,6 +3,7 @@
 import random
 from typing import Any
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.optim as optim
@@ -173,6 +174,12 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
     Return loss based the the two-way translations.
     """
 
+    def add_noise(batch, deleted_columns = 2):
+        for _ in range(deleted_columns):
+            ind = torch.randint(0, batch.shape[1], (1,))[0].item()
+            batch = batch[:, np.arange(batch.shape[1]) != ind]
+        return batch
+
     def base_step(self, batch, teacher_forcing: float = 0.0, mode: str = "train"):
         batch_size = len(batch)
         src, tgt = batch
@@ -181,8 +188,8 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
         # TODO apply copy the original output
         # apply noise to the input before passing it to the model
         # calculate loss based on the input before applying noise
-        output_src = self(src, src, Language.src, Language.src, teacher_forcing)
-        output_tgt = self(tgt, tgt, Language.tgt, Language.tgt, teacher_forcing)
+        output_src = self(self.add_noise(src), src, Language.src, Language.src, teacher_forcing)
+        output_tgt = self(self.add_noise(tgt), tgt, Language.tgt, Language.tgt, teacher_forcing)
         l_auto = self.criterion(
             output_src,
             src[1:].view(
