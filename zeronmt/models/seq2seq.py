@@ -131,7 +131,7 @@ class Seq2SeqSupervised(pl.LightningModule):
         output = self(src, tgt, Language.src, Language.tgt, teacher_forcing)
         output = output[1:].view(
             -1, output.shape[-1]
-        )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+        )  # skip the leading BOS token, leave the number of output class dim, so Pytorch knows we are passing logits here
         l_src_tgt = self.criterion(
             output, tgt[1:].view(-1)
         )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
@@ -140,7 +140,7 @@ class Seq2SeqSupervised(pl.LightningModule):
         output = self(tgt, src, Language.tgt, Language.src, teacher_forcing)
         output = output[1:].view(
             -1, output.shape[-1]
-        )  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+        )  # skip the leading BOS token, leave the number of output class dim, so Pytorch knows we are passing logits here
 
         l_tgt_src = self.criterion(
             output, src[1:].view(-1)
@@ -187,43 +187,59 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
         """
         drop and reoder tokens at random
         """
-        p_wd = 0.1  # probability of word drop; value from arxiv:1711.00043
+        # # dropping is buggy, skip it
+        # # p_wd = 0.1  # probability of word drop; value from arxiv:1711.00043
         EOS_IDX = 3  # pardon for hardcoding it here TODO
-        word_ids_to_leave = (
-            torch.arange(len(monoling_batch))[
-                torch.rand(len(monoling_batch - 2)) <= p_wd
-            ]
-            + 1
-        )  # to recall, 1st dim is #words, 2nd dim is monoling_batch size # we want to preserve BOS and EOS tokens
-        monoling_batch = monoling_batch[word_ids_to_leave]
+        # # allowed_idx = torch.arange(1, len(monoling_batch -1))
+        # # allowed_idx = allowed_idx[(monoling_batch[allowed_idx,:] != EOS_IDX).all(dim=1)]
+        # # word_idx_to_drop = (
+        # #     allowed_idx[
+        # #         torch.rand(len(allowed_idx)) <= p_wd
+        # #     ]
+
+        # # )  # to recall, 1st dim is #words, 2nd dim is monoling_batch size # we want to preserve BOS and EOS tokens
+        # monoling_batch = monoling_batch[~word_idx_to_drop, :]
         for i in range(monoling_batch.shape[1]):
             sent = monoling_batch[:, i]
             sent_end = sent[sent == EOS_IDX][0]  # wow wow so efficient
             sent[1:sent_end] = self.apply_permutation(sent[1:sent_end])
             monoling_batch[:, i] = sent
+        return monoling_batch
 
     def cross_domain_step(self, src, tgt, teacher_forcing: float = 0.0):
         # src, tgt === source and target batch
 
         # src -> tgt -> src step
         output = self(src, tgt, Language.src, Language.tgt, teacher_forcing)
-        output = self(output, src, Language.tgt, Language.src, teacher_forcing)
+        output = self(
+            output.argmax(-1),
+            src,
+            Language.tgt,
+            Language.src,
+            teacher_forcing,  # argmax as we want tokens, not logits
+        )
 
         l_cd_src = self.criterion(
             output[1:].view(
                 -1, output.shape[-1]
-            ),  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+            ),  # skip the leading BOS token, leave the number of output class dim, so Pytorch knows we are passing logits here
             src[1:].view(-1),
         )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
         # tgt -> src -> tgt step
         output = self(tgt, src, Language.tgt, Language.src, teacher_forcing)
-        output = self(output, tgt, Language.src, Language.tgt, teacher_forcing)
+        output = self(
+            output.argmax(-1),
+            tgt,
+            Language.src,
+            Language.tgt,
+            teacher_forcing,  # argmax as we want tokens, not logits
+        )
 
         l_cd_tgt = self.criterion(
             output[1:].view(
                 -1, output.shape[-1]
-            ),  # skip the leading BOS token, leave the number of output class dim, do Pytorch knows we are passing logits here
+            ),  # skip the leading BOS token, leave the number of output class dim, so Pytorch knows we are passing logits here
             tgt[1:].view(-1),
         )  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
 
@@ -238,18 +254,26 @@ class Seq2SeqUnsupervised(Seq2SeqSupervised):
         # apply noise to the input before passing it to the model
         # calculate loss based on the input before applying noise
         output_src = self(
-            self.corrupt_tokens(src), src, Language.src, Language.src, teacher_forcing
+            self.corrupt_tokens(src.clone()),
+            src,
+            Language.src,
+            Language.src,
+            teacher_forcing,
         )
         output_tgt = self(
-            self.corrupt_tokens(tgt), tgt, Language.tgt, Language.tgt, teacher_forcing
+            self.corrupt_tokens(tgt.clone()),
+            tgt,
+            Language.tgt,
+            Language.tgt,
+            teacher_forcing,
         )
         l_auto = self.criterion(
-            output_src,
+            output_src[1:].view(-1, output_src.shape[-1]),
             src[1:].view(
                 -1
             ),  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
         ) + self.criterion(
-            output_tgt,
+            output_tgt[1:].view(-1, output_tgt.shape[-1]),
             tgt[1:].view(
                 -1
             ),  # skip the leading BOS token (that has already been an input), flatten (this tensor contains class id-s, not logits)
